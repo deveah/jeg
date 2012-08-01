@@ -12,7 +12,7 @@
 #define SAMPLE_RATE 44100
 #define BUFFER_SIZE 512
 #define CHANNELS 1
-#define DEFAULT_BPM 140
+#define DEFAULT_BPM 200
 #define BEATS_PER_MEASURE 8
 
 #define A4_FREQ 440.0f
@@ -24,6 +24,7 @@
 #define RANDOM_SNARE_CHANCE 4
 #define RANDOM_MODULATION 5
 #define RANDOM_SNARE_SILENCE_CHANCE 3
+#define RANDOM_OCTAVE_JUMP_CHANCE 3
 
 #define sgn(x) (((x)<0)?-1.0f:1.0f)
 
@@ -117,7 +118,7 @@ static int audio_callback(	const void *inputBuffer, void *outputBuffer,
 
 			if( rand()%RANDOM_NOTE_CHANGE_CHANCE == 0 )
 			{
-				bass_freq = midi_to_hz( BASE_NOTE + minor_scale[ rand()%7 ] );
+				bass_freq = midi_to_hz( BASE_NOTE + minor_scale[ rand()%7 ] + ((rand()%RANDOM_OCTAVE_JUMP_CHANCE==0)?12:0) );
 			}
 
 			if( ( beat_count % 4 == 0 ) && ( rand()%RANDOM_GLITCH_CHANCE == 0 ) )
@@ -169,14 +170,14 @@ static int audio_callback(	const void *inputBuffer, void *outputBuffer,
 
 		if( sd_time >= 0 )
 		{
-			d = d * 0.5f + sd[sd_time++] * 0.5f;
+			d = d * 0.8f + sd[sd_time++];
 			if( sd_time > SAMPLE_RATE )
 				sd_time = -1;
 		}
 
 		if( hh_time >= 0 )
 		{
-			d = d * 0.5f + hh[hh_time++] * 0.05f;
+			d = d * 0.8f + hh[hh_time++] * 0.05f;
 			if( hh_time > SAMPLE_RATE )
 				hh_time = -1;
 		}
@@ -189,12 +190,12 @@ static int audio_callback(	const void *inputBuffer, void *outputBuffer,
 
 		bass_z = bass_lfoval * bass_z + ( 1.0f - bass_lfoval ) * b;
 
-		v = 0.2f;
+		v = 0.3f;
 
 		out[i] = bass_vol * bass_z * v + d * ( 1.0f-v );
 
-		if( ( out[i] > 1.0f ) || ( out[i] < -1.0f ) )
-			printf( "belire de pulă @ %i: %f (bass=%f, drum=%f)\n", i, out[i], bass_z, d );
+		if( out[i] > 1.0f ) out[i] = 1.0f;
+		if( out[i] < -1.0f ) out[i] = -1.0f;
 
 		global_frame++;
 	}
@@ -204,15 +205,20 @@ static int audio_callback(	const void *inputBuffer, void *outputBuffer,
 	return paContinue;
 }
 
+void gen_default_drums( void )
+{
+	gen_drum( bd, SAMPLE_RATE, 2.0f, 0.9995f, 35.0f, 0.001f, 5.0f, 0.99f, 0.93f );
+	gen_drum( sd, SAMPLE_RATE, 2.0f, 0.9995f, 70.0f, 0.002f, 1.0f, 0.9998f, 0.5f );
+	gen_drum( hh, SAMPLE_RATE, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.9995f, 0.0f );
+}
+
 int main( void )
 {
 	PaStreamParameters outputParameters;
 	PaError pa_err;
 	SF_INFO sfinfo;
 
-	gen_drum( bd, SAMPLE_RATE, 2.0f, 0.9995f, 35.0f, 0.001f, 5.0f, 0.99f, 0.93f );
-	gen_drum( sd, SAMPLE_RATE, 2.0f, 0.9995f, 70.0f, 0.002f, 1.0f, 0.9998f, 0.5f );
-	gen_drum( hh, SAMPLE_RATE, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.9995f, 0.0f );
+	gen_default_drums();
 
 	pa_err = Pa_Initialize();
 	outputParameters.device = Pa_GetDefaultOutputDevice();
@@ -230,11 +236,12 @@ int main( void )
 	srand( time( 0 ) );
 
 	bass_z = 0.0f;
-	bass_freq = 55.0f;
+	bass_freq = midi_to_hz( BASE_NOTE );
 
 	pa_err = Pa_StartStream( stream );
 	
-	Pa_Sleep( 24000 );
+	while( 1 )
+		Pa_Sleep( 1000 );
 
 	sf_close( wave_output );
 	pa_err = Pa_StopStream( stream );
