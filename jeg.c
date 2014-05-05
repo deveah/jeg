@@ -1,4 +1,12 @@
 
+/*
+ *	jeg.c
+ *	Procedural Dubstep Generator
+ *	(c) 2012-2014 Vlad Dumitru, Marius Petcu, Claudiu Tașcă
+ *	Released under Public Domain.
+ *
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -9,22 +17,25 @@
 
 #define OUTPUT_FILE "wub.wav"
 
-#define SAMPLE_RATE 44100
-#define BUFFER_SIZE 512
-#define CHANNELS 1
-#define DEFAULT_BPM 200
-#define BEATS_PER_MEASURE 8
+/*	stream parameters */
+#define SAMPLE_RATE						44100
+#define BUFFER_SIZE						512
+#define CHANNELS						1
 
-#define A4_FREQ 440.0f
-#define BASE_NOTE 28
+/*	basic song parameters */
+#define DEFAULT_BPM						140
+#define BEATS_PER_MEASURE				8
+#define A4_FREQ							440.0f
+#define BASE_NOTE						28
 
-#define RANDOM_GLITCH_CHANCE 3
-#define RANDOM_GLITCH_RETURN_CHANCE 3
-#define RANDOM_NOTE_CHANGE_CHANCE 20
-#define RANDOM_SNARE_CHANCE 4
-#define RANDOM_MODULATION 5
-#define RANDOM_SNARE_SILENCE_CHANCE 3
-#define RANDOM_OCTAVE_JUMP_CHANCE 3
+/*	song randomness properties */
+#define RANDOM_GLITCH_CHANCE			3
+#define RANDOM_GLITCH_RETURN_CHANCE		3
+#define RANDOM_NOTE_CHANGE_CHANCE		20
+#define RANDOM_SNARE_CHANCE				4
+#define RANDOM_MODULATION				5
+#define RANDOM_SNARE_SILENCE_CHANCE		3
+#define RANDOM_OCTAVE_JUMP_CHANCE		3
 
 #define sgn(x) (((x)<0)?-1.0f:1.0f)
 
@@ -58,11 +69,15 @@ float flt_freq[] = {
 	6.0f
 };
 
+/*	this function converts a MIDI note number into its corresponding frequency,
+	represented in Hertz */
 float midi_to_hz( int note )
 {
 	return ( A4_FREQ * powf( 2.0f, (float)(note-69) / 12.0f ) );
 }
 
+/*	this function generates a drum sound by overlapping a variable amplitude
+	and frequency sine wave with lowpass-filtered white noise */
 int gen_drum(	float *dest, int nframes,
 				float amp, float decay,
 				float freq, float freqdecay,
@@ -74,10 +89,13 @@ int gen_drum(	float *dest, int nframes,
 
 	for( i = 0; i < nframes; i++ )
 	{
+		/*	the tonal component */
 		dest[i] = _amp * sin( 2.0 * M_PI *_freq * (double)i / (double)SAMPLE_RATE );
+		/*	the noise component */
 		f = (noisefilter) * f + (1.0f-noisefilter) * _noise * ( (float)( rand()%100 ) / 100.0f - 0.5f );
 		dest[i] += f;
 
+		/*	advancing the envelopes */
 		_noise *= noisedecay;
 		_amp *= decay;
 		_freq -= freqdecay;
@@ -92,6 +110,7 @@ int gen_drum(	float *dest, int nframes,
 	return 0;
 }
 
+/*	main function that makes the dubstep sound */
 static int audio_callback(	const void *inputBuffer, void *outputBuffer,
 							unsigned long framesPerBuffer,
 							const PaStreamCallbackTimeInfo *timeInfo,
@@ -111,34 +130,43 @@ static int audio_callback(	const void *inputBuffer, void *outputBuffer,
 
 		beat = global_frame % ( SAMPLE_RATE / ( DEFAULT_BPM / 60 ) / 4 );
 
+		/*	if the stream has hit a beat */
 		if( beat == 0 )
 		{
+			/*	4 beats is half a measure; alter the filter's LFO */
 			if( beat_count % 4 == 0 )
 				bass_lfofreq = ((float)DEFAULT_BPM/60.0f) * flt_freq[ rand()%4 ];
 
+			/*	change the note by choosing another from the provided scale */
 			if( rand()%RANDOM_NOTE_CHANGE_CHANCE == 0 )
 			{
 				bass_freq = midi_to_hz( BASE_NOTE + minor_scale[ rand()%7 ] + ((rand()%RANDOM_OCTAVE_JUMP_CHANCE==0)?12:0) );
 			}
 
+			/*	alter the FM index (modulator amplitude), to add overtones to
+				the bassline, thus creating the 'glitched' sound */
 			if( ( beat_count % 4 == 0 ) && ( rand()%RANDOM_GLITCH_CHANCE == 0 ) )
 			{
 				bass_fmindex = (float)( rand()%999 + 1 );
 			}
 
+			/*	reset the FM index to return to the normal square bass sound */
 			if( ( beat_count % 4 == 0 ) && ( rand()%RANDOM_GLITCH_RETURN_CHANCE == 0 ) )
 			{
 				bass_fmindex = 0.0f;
 			}
 		
+			/*	alter the FM mod (modulator frequency multiplier) */
 			if( rand()%RANDOM_MODULATION == 0 )
 			{
 				bass_fmmod = (float)( rand()%3 + 1 );
 			}
 
+			/*	a bassdrum hits every two measures */
 			if( beat_count % 16 == 0 )
 				bd_time = 0;
 
+			/*	sometimes, the snare won't trigger */
 			if( beat_count % 16 == 8 )
 			{
 				if( rand()%RANDOM_SNARE_SILENCE_CHANCE == 0 )
@@ -146,21 +174,27 @@ static int audio_callback(	const void *inputBuffer, void *outputBuffer,
 				sd_time = 0;
 			}
 
+			/*	trigger a snare drum on the 10th beat of two measures combined */
 			if( ( beat_count % 16 == 10 ) && ( rand()%RANDOM_SNARE_CHANCE == 0 ) )
 				sd_time = 0;
 
+			/*	reset the volume of the bassline, if it has been previously
+				diminished, to create the impression of a compressor */
 			if( beat_count % 16 == 12 )
 				bass_vol = 1.0f;
 
+			/*	trigger a bass drum */
 			if( beat_count % 16 == 6 )
 				bd_time = 0;
 
+			/*	trigger a hihat */
 			if( beat_count % 2 == 0 )
 				hh_time = 0;
 
 			beat_count++;
 		}
 
+		/*	advance sample counters and mix the drum channel */
 		if( bd_time >= 0 )
 		{
 			d = bd[bd_time++];
@@ -182,17 +216,24 @@ static int audio_callback(	const void *inputBuffer, void *outputBuffer,
 				hh_time = -1;
 		}
 
+		/*	compute the LFO value */
 		bass_lfoval = sin( 2.0 * M_PI * bass_lfofreq * (float)global_frame / (float)SAMPLE_RATE );
+		/*	the LFO value is in range 0.00 .. 0.01 */
 		bass_lfoval = bass_lfoval/100.0f + 0.99f;
 
+		/*	compute the modulator */
 		mod = sin( 2.0 * M_PI * bass_fmmod * bass_freq * (float)global_frame / (float)SAMPLE_RATE );
+		/*	compute the bassline */
 		b = sgn( sin( 2.0 * M_PI * ( bass_freq * (float)global_frame / (float)SAMPLE_RATE ) + mod * bass_fmindex ) );
 
+		/*	process the bassline through a lowpass filter */
 		bass_z = bass_lfoval * bass_z + ( 1.0f - bass_lfoval ) * b;
 
 		v = 0.3f;
 
+		/*	final mix of the two tracks */
 		out[i] = bass_vol * bass_z * v + d * ( 1.0f-v );
+
 
 		if( out[i] > 1.0f ) out[i] = 1.0f;
 		if( out[i] < -1.0f ) out[i] = -1.0f;
