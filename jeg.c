@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <time.h>
+#include <signal.h>
 
 #include <sndfile.h>
 #include <portaudio.h>
@@ -90,9 +91,11 @@ int gen_drum(	float *dest, int nframes,
 	for( i = 0; i < nframes; i++ )
 	{
 		/*	the tonal component */
-		dest[i] = _amp * sin( 2.0 * M_PI *_freq * (double)i / (double)SAMPLE_RATE );
+		dest[i] = _amp * sin( 2.0 * M_PI *_freq * (double)i /
+			(double)SAMPLE_RATE );
 		/*	the noise component */
-		f = (noisefilter) * f + (1.0f-noisefilter) * _noise * ( (float)( rand()%100 ) / 100.0f - 0.5f );
+		f = (noisefilter) * f + (1.0f-noisefilter) * _noise * (
+			(float)( rand()%100 ) / 100.0f - 0.5f );
 		dest[i] += f;
 
 		/*	advancing the envelopes */
@@ -135,12 +138,14 @@ static int audio_callback(	const void *inputBuffer, void *outputBuffer,
 		{
 			/*	4 beats is half a measure; alter the filter's LFO */
 			if( beat_count % 4 == 0 )
-				bass_lfofreq = ((float)DEFAULT_BPM/60.0f) * flt_freq[ rand()%4 ];
+				bass_lfofreq = ((float)DEFAULT_BPM/60.0f) *
+					flt_freq[ rand()%4 ];
 
 			/*	change the note by choosing another from the provided scale */
 			if( rand()%RANDOM_NOTE_CHANGE_CHANCE == 0 )
 			{
-				bass_freq = midi_to_hz( BASE_NOTE + minor_scale[ rand()%7 ] + ((rand()%RANDOM_OCTAVE_JUMP_CHANCE==0)?12:0) );
+				bass_freq = midi_to_hz( BASE_NOTE + minor_scale[ rand()%7 ] +
+					((rand()%RANDOM_OCTAVE_JUMP_CHANCE==0)?12:0) );
 			}
 
 			/*	alter the FM index (modulator amplitude), to add overtones to
@@ -217,14 +222,17 @@ static int audio_callback(	const void *inputBuffer, void *outputBuffer,
 		}
 
 		/*	compute the LFO value */
-		bass_lfoval = sin( 2.0 * M_PI * bass_lfofreq * (float)global_frame / (float)SAMPLE_RATE );
+		bass_lfoval = sin( 2.0 * M_PI * bass_lfofreq * (float)global_frame /
+			(float)SAMPLE_RATE );
 		/*	the LFO value is in range 0.00 .. 0.01 */
 		bass_lfoval = bass_lfoval/100.0f + 0.99f;
 
 		/*	compute the modulator */
-		mod = sin( 2.0 * M_PI * bass_fmmod * bass_freq * (float)global_frame / (float)SAMPLE_RATE );
+		mod = sin( 2.0 * M_PI * bass_fmmod * bass_freq * (float)global_frame /
+			(float)SAMPLE_RATE );
 		/*	compute the bassline */
-		b = sgn( sin( 2.0 * M_PI * ( bass_freq * (float)global_frame / (float)SAMPLE_RATE ) + mod * bass_fmindex ) );
+		b = sgn( sin( 2.0 * M_PI * ( bass_freq * (float)global_frame /
+			(float)SAMPLE_RATE ) + mod * bass_fmindex ) );
 
 		/*	process the bassline through a lowpass filter */
 		bass_z = bass_lfoval * bass_z + ( 1.0f - bass_lfoval ) * b;
@@ -253,11 +261,27 @@ void gen_default_drums( void )
 	gen_drum( hh, SAMPLE_RATE, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.9995f, 0.0f );
 }
 
+void interrupt( int sig )
+{
+	(void) sig;
+	PaError pa_err;
+
+	sf_close( wave_output );
+	pa_err = Pa_StopStream( stream );
+	pa_err = Pa_CloseStream( stream );
+	Pa_Terminate();
+
+	printf( "Successfully terminated.\n" );
+	exit( 0 );
+}
+
 int main( void )
 {
 	PaStreamParameters outputParameters;
 	PaError pa_err;
 	SF_INFO sfinfo;
+
+	signal( SIGINT, interrupt );
 
 	gen_default_drums();
 
@@ -265,9 +289,11 @@ int main( void )
 	outputParameters.device = Pa_GetDefaultOutputDevice();
 	outputParameters.channelCount = CHANNELS;
 	outputParameters.sampleFormat = paFloat32;
-	outputParameters.suggestedLatency = Pa_GetDeviceInfo( outputParameters.device )->defaultLowOutputLatency;
+	outputParameters.suggestedLatency =
+		Pa_GetDeviceInfo( outputParameters.device )->defaultLowOutputLatency;
 	outputParameters.hostApiSpecificStreamInfo = NULL;
-	pa_err = Pa_OpenStream( &stream, NULL, &outputParameters, SAMPLE_RATE, BUFFER_SIZE, paClipOff, audio_callback, NULL );
+	pa_err = Pa_OpenStream( &stream, NULL, &outputParameters, SAMPLE_RATE,
+		BUFFER_SIZE, paClipOff, audio_callback, NULL );
 
 	sfinfo.samplerate = SAMPLE_RATE;
 	sfinfo.channels = CHANNELS;
@@ -291,5 +317,4 @@ int main( void )
 
 	return 0;
 }
-
 
